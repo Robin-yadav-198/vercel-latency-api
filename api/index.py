@@ -75,24 +75,39 @@ async def analyze_latency(request: dict):
 
 from http.server import BaseHTTPRequestHandler
 import json
-import os
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
-        # Handle preflight requests
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
     
-    def do_POST(self):
-        # Add CORS headers to POST responses
+    def do_GET(self):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         
-        # Your POST handling logic here
-        response = {"message": "POST received", "status": "success"}
+        # Your existing GET logic here
+        with open('q-vercel-latency.json', 'r') as f:
+            data = f.read()
+        self.wfile.write(data.encode())
+    
+    def do_POST(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_heads()
+        
+        # Handle POST request
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        
+        response = {
+            "message": "POST received successfully",
+            "status": "success",
+            "your_data": json.loads(post_data)
+        }
         self.wfile.write(json.dumps(response).encode())
