@@ -71,3 +71,28 @@ async def analyze_latency(request: dict):
         
     except Exception as e:
         return {"error": str(e)}
+
+
+from http.server import BaseHTTPRequestHandler
+import json
+import os
+
+class Handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        # Handle preflight requests
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+    
+    def do_POST(self):
+        # Add CORS headers to POST responses
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        # Your POST handling logic here
+        response = {"message": "POST received", "status": "success"}
+        self.wfile.write(json.dumps(response).encode())
