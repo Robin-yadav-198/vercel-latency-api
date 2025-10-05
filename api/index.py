@@ -6,7 +6,7 @@ import os
 
 app = FastAPI()
 
-# CORS configuration - THIS MUST COME FIRST
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +23,7 @@ def load_data():
         with open(data_file, 'r') as f:
             return json.load(f)
     except Exception as e:
-        return []
+        return {"error": f"Failed to load data: {str(e)}"}
 
 telemetry_data = load_data()
 
@@ -32,12 +32,21 @@ async def root():
     return {
         "message": "Latency Analytics API", 
         "status": "running",
-        "data_records": len(telemetry_data)
+        "data_records": len(telemetry_data) if isinstance(telemetry_data, list) else 0
     }
+
+@app.get("/api/")
+async def get_data():
+    """GET endpoint to return all data"""
+    return telemetry_data
 
 @app.post("/api/")
 async def analyze_latency(request: dict):
     try:
+        # If telemetry_data failed to load
+        if not isinstance(telemetry_data, list):
+            return {"error": "Data not available"}
+            
         regions = request.get("regions", [])
         threshold = request.get("threshold_ms", 180)
         
@@ -71,43 +80,3 @@ async def analyze_latency(request: dict):
         
     except Exception as e:
         return {"error": str(e)}
-
-
-from http.server import BaseHTTPRequestHandler
-import json
-
-class Handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-    
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        
-        # Your existing GET logic here
-        with open('q-vercel-latency.json', 'r') as f:
-            data = f.read()
-        self.wfile.write(data.encode())
-    
-    def do_POST(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_heads()
-        
-        # Handle POST request
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-        
-        response = {
-            "message": "POST received successfully",
-            "status": "success",
-            "your_data": json.loads(post_data)
-        }
-        self.wfile.write(json.dumps(response).encode())
