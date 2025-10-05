@@ -1,31 +1,27 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import json
 import os
 
 app = FastAPI()
 
-# Enable CORS
+# Enhanced CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 # Load data function
 def load_data():
     try:
-        # Get the current directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
         data_file = os.path.join(current_dir, "q-vercel-latency.json")
-        
-        print(f"Looking for data file at: {data_file}")
-        
         with open(data_file, 'r') as f:
             data = json.load(f)
-            print(f"Successfully loaded {len(data)} records")
             return data
     except Exception as e:
         print(f"Error loading data: {str(e)}")
@@ -42,31 +38,37 @@ async def root():
         "data_records": len(telemetry_data)
     }
 
+# Add explicit OPTIONS handler for CORS preflight
+@app.options("/api/")
+async def options_api():
+    return JSONResponse(
+        content={"message": "CORS preflight"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+    )
+
 @app.post("/api/")
 async def analyze_latency(request: Request):
     try:
-        # Get request data
+        # Add CORS headers to response
         body = await request.json()
         regions = body.get("regions", [])
         threshold = body.get("threshold_ms", 180)
         
-        print(f"Processing regions: {regions}, threshold: {threshold}")
-        
         results = []
         
         for region in regions:
-            # Filter data for the region
             region_data = [item for item in telemetry_data if item.get("region") == region]
             
             if region_data:
-                # Extract values
                 latencies = [item["latency_ms"] for item in region_data]
                 uptimes = [item["uptime_pct"] for item in region_data]
                 
-                # Calculate statistics
                 avg_latency = round(sum(latencies) / len(latencies), 2)
                 
-                # Calculate 95th percentile
                 sorted_latencies = sorted(latencies)
                 index_95 = int(0.95 * len(sorted_latencies))
                 p95_latency = round(sorted_latencies[index_95], 2)
@@ -82,17 +84,26 @@ async def analyze_latency(request: Request):
                     "breaches": breaches
                 })
             else:
-                # Region not found
                 results.append({
                     "region": region,
                     "avg_latency": 0,
                     "p95_latency": 0,
                     "avg_uptime": 0,
-                    "breaches": 0,
-                    "error": "Region not found"
+                    "breaches": 0
                 })
         
-        return {"regions": results}
+        # Return with explicit CORS headers
+        response = JSONResponse(content={"regions": results})
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        
+        return response
         
     except Exception as e:
-        return {"error": str(e), "regions": []}
+        error_response = JSONResponse(
+            content={"error": str(e), "regions": []},
+            status_code=500
+        )
+        error_response.headers["Access-Control-Allow-Origin"] = "*"
+        return error_response
