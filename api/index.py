@@ -1,111 +1,98 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import json
+import os
 
 app = FastAPI()
 
-# Enable CORS for all origins - this allows your API to be called from anywhere
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods, including POST
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Load the dataset when the app starts
-# We use pathlib to ensure we find the file correctly
-DATA_FILE = Path(__file__).parent / "q-vercel-latency.json"
+# Load data function
+def load_data():
+    try:
+        # Get the current directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        data_file = os.path.join(current_dir, "q-vercel-latency.json")
+        
+        print(f"Looking for data file at: {data_file}")
+        
+        with open(data_file, 'r') as f:
+            data = json.load(f)
+            print(f"Successfully loaded {len(data)} records")
+            return data
+    except Exception as e:
+        print(f"Error loading data: {str(e)}")
+        return []
 
-# Load the JSON data into a pandas DataFrame for easy analysis
-try:
-    df = pd.read_json(DATA_FILE)
-    print(f"Successfully loaded data with {len(df)} records")
-except Exception as e:
-    print(f"Error loading data: {e}")
-    df = pd.DataFrame()  # Empty dataframe as fallback
+# Load data when the app starts
+telemetry_data = load_data()
 
 @app.get("/")
 async def root():
-    """Simple health check endpoint"""
     return {
-        "message": "Latency Analytics API is running", 
-        "status": "healthy",
-        "data_records": len(df) if not df.empty else 0
+        "message": "Latency Analytics API", 
+        "status": "running",
+        "data_records": len(telemetry_data)
     }
 
 @app.post("/api/")
 async def analyze_latency(request: Request):
-    """
-    Main analytics endpoint
-    Expected JSON payload:
-    {
-        "regions": ["apac", "amer", "emea"],
-        "threshold_ms": 180
-    }
-    """
     try:
-        # Get the JSON data from the request
-        payload = await request.json()
+        # Get request data
+        body = await request.json()
+        regions = body.get("regions", [])
+        threshold = body.get("threshold_ms", 180)
         
-        # Extract regions and threshold from the payload
-        regions_to_process = payload.get("regions", [])
-        threshold = payload.get("threshold_ms", 200)
-        
-        print(f"Processing regions: {regions_to_process} with threshold: {threshold}ms")
-        
-        # If no regions specified, return empty result
-        if not regions_to_process:
-            return {"regions": []}
-        
-        # If we failed to load data, return error
-        if df.empty:
-            return {"error": "Data not available", "regions": []}
+        print(f"Processing regions: {regions}, threshold: {threshold}")
         
         results = []
         
-        # Calculate statistics for each requested region
-        for region in regions_to_process:
-            # Filter data for the current region
-            region_data = df[df["region"] == region]
+        for region in regions:
+            # Filter data for the region
+            region_data = [item for item in telemetry_data if item.get("region") == region]
             
-            if not region_data.empty:
-                # Calculate average latency
-                avg_latency = round(region_data["latency_ms"].mean(), 2)
+            if region_data:
+                # Extract values
+                latencies = [item["latency_ms"] for item in region_data]
+                uptimes = [item["uptime_pct"] for item in region_data]
                 
-                # Calculate 95th percentile latency
-                p95_latency = round(np.percentile(region_data["latency_ms"], 95), 2)
+                # Calculate statistics
+                avg_latency = round(sum(latencies) / len(latencies), 2)
                 
-                # Calculate average uptime percentage
-                avg_uptime = round(region_data["uptime_pct"].mean(), 3)
+                # Calculate 95th percentile
+                sorted_latencies = sorted(latencies)
+                index_95 = int(0.95 * len(sorted_latencies))
+                p95_latency = round(sorted_latencies[index_95], 2)
                 
-                # Count how many records exceed the threshold
-                breaches = int(region_data[region_data["latency_ms"] > threshold].shape[0])
+                avg_uptime = round(sum(uptimes) / len(uptimes), 3)
+                breaches = sum(1 for latency in latencies if latency > threshold)
                 
-                # Add to results
                 results.append({
                     "region": region,
                     "avg_latency": avg_latency,
                     "p95_latency": p95_latency,
                     "avg_uptime": avg_uptime,
-                    "breaches": breaches,
+                    "breaches": breaches
                 })
             else:
-                # Region not found in data
+                # Region not found
                 results.append({
                     "region": region,
                     "avg_latency": 0,
                     "p95_latency": 0,
                     "avg_uptime": 0,
                     "breaches": 0,
-                    "error": "Region not found in data"
+                    "error": "Region not found"
                 })
         
         return {"regions": results}
         
     except Exception as e:
-        # Return error if something goes wrong
-        return {"error": f"Processing failed: {str(e)}", "regions": []}
+        return {"error": str(e), "regions": []}
