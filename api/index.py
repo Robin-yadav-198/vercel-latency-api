@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import json
@@ -6,28 +6,25 @@ import os
 
 app = FastAPI()
 
-# Enhanced CORS configuration
+# CORS configuration - THIS MUST COME FIRST
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["*"],
 )
 
-# Load data function
+# Load data
 def load_data():
     try:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         data_file = os.path.join(current_dir, "q-vercel-latency.json")
         with open(data_file, 'r') as f:
-            data = json.load(f)
-            return data
+            return json.load(f)
     except Exception as e:
-        print(f"Error loading data: {str(e)}")
         return []
 
-# Load data when the app starts
 telemetry_data = load_data()
 
 @app.get("/")
@@ -38,25 +35,11 @@ async def root():
         "data_records": len(telemetry_data)
     }
 
-# Add explicit OPTIONS handler for CORS preflight
-@app.options("/api/")
-async def options_api():
-    return JSONResponse(
-        content={"message": "CORS preflight"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
-    )
-
 @app.post("/api/")
-async def analyze_latency(request: Request):
+async def analyze_latency(request: dict):
     try:
-        # Add CORS headers to response
-        body = await request.json()
-        regions = body.get("regions", [])
-        threshold = body.get("threshold_ms", 180)
+        regions = request.get("regions", [])
+        threshold = request.get("threshold_ms", 180)
         
         results = []
         
@@ -83,27 +66,8 @@ async def analyze_latency(request: Request):
                     "avg_uptime": avg_uptime,
                     "breaches": breaches
                 })
-            else:
-                results.append({
-                    "region": region,
-                    "avg_latency": 0,
-                    "p95_latency": 0,
-                    "avg_uptime": 0,
-                    "breaches": 0
-                })
         
-        # Return with explicit CORS headers
-        response = JSONResponse(content={"regions": results})
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        
-        return response
+        return {"regions": results}
         
     except Exception as e:
-        error_response = JSONResponse(
-            content={"error": str(e), "regions": []},
-            status_code=500
-        )
-        error_response.headers["Access-Control-Allow-Origin"] = "*"
-        return error_response
+        return {"error": str(e)}
